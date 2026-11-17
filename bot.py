@@ -69,14 +69,10 @@ last_notice = {}      # {uid: monotonic time}
 # ---------------- database ----------------
 
 async def init_db():
-       global DB_POOL
-    logger.info("init_db: create_pool(%s…)", DATABASE_URL[:30])
+    global DB_POOL
+    logger.info("init_db: connecting (url prefix=%s)", DATABASE_URL[:30])
     DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
-    logger.info("init_db: pool object = %r", DB_POOL)
-    async with DB_POOL.acquire() as conn:
-        await conn.execute("""...""")
-    logger.info("init_db: schema ready")
-    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+    logger.info("init_db: pool created (repr=%r)", DB_POOL)
     async with DB_POOL.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_settings (
@@ -100,7 +96,7 @@ async def init_db():
                 PRIMARY KEY (user_id, kind)
             );
         """)
-    logger.info("DB schema ready")
+    logger.info("init_db: schema ready")
 
 
 async def close_db():
