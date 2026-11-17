@@ -383,10 +383,10 @@ async def log_unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     await init_db()
     await app.bot.set_my_commands([
-        BotCommand("start",        "Show intro & usage"),
-        BotCommand("settings",     "Toggle dedup / photos / documents"),
-        BotCommand("stats",        "Show your forwarding counters"),
-        BotCommand("reset_dedup",  "Clear dedup memory"),
+        BotCommand("start",       "Show intro & usage"),
+        BotCommand("settings",    "Toggle dedup / photos / documents"),
+        BotCommand("stats",       "Show your forwarding counters"),
+        BotCommand("reset_dedup", "Clear dedup memory"),
     ])
     logger.info("Bot commands registered")
 
