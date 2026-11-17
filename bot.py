@@ -419,6 +419,27 @@ async def post_init(app: Application):
 
 async def post_shutdown(app: Application):
     await close_db()
+    
+def register_handlers(app: Application):
+    admin = filters.User(ADMIN_IDS)
+
+    app.add_handler(CommandHandler("start",       start,           filters=admin))
+    app.add_handler(CommandHandler("settings",    settings_cmd,    filters=admin))
+    app.add_handler(CommandHandler("stats",       stats_cmd,       filters=admin))
+    app.add_handler(CommandHandler("reset_dedup", reset_dedup_cmd, filters=admin))
+
+    app.add_handler(CallbackQueryHandler(
+        settings_button,
+        pattern="^(toggle_(dedup|photos|documents)|reset_dedup)$"))
+
+    app.add_handler(MessageHandler(
+        admin & (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL),
+        handle_media))
+    app.add_handler(MessageHandler(admin & filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.ALL & ~admin, log_unauthorized))
+
+    # global error handler — makes failures visible in chat instead of silent
+    app.add_error_handler(error_handler)    
 
 
 async def main_webhook():
