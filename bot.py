@@ -394,7 +394,8 @@ async def post_shutdown(app: Application):
     await close_db()
 
 
-def main():
+
+async def main_webhook():
     app = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -417,28 +418,8 @@ def main():
         handle_media))
     app.add_handler(MessageHandler(admin & filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.ALL & ~admin, log_unauthorized))
-
     logger.info("Bot running. Admins: %s", ADMIN_IDS)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-import os
-from telegram import Update
-
-PORT = int(os.environ.get("PORT", 10000))
-RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render injects this
-
-async def main_webhook():
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
-    )
-
-    # ... register your handlers exactly as before ...
-
     await app.initialize()
     await app.bot.set_webhook(
         url=f"{RENDER_URL}/{BOT_TOKEN}",
