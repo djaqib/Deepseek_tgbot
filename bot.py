@@ -65,7 +65,13 @@ last_notice = {}      # {uid: monotonic time}
 # ---------------- database ----------------
 
 async def init_db():
-    global DB_POOL
+       global DB_POOL
+    logger.info("init_db: create_pool(%s…)", DATABASE_URL[:30])
+    DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
+    logger.info("init_db: pool object = %r", DB_POOL)
+    async with DB_POOL.acquire() as conn:
+        await conn.execute("""...""")
+    logger.info("init_db: schema ready")
     DB_POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=5)
     async with DB_POOL.acquire() as conn:
         await conn.execute("""
@@ -164,7 +170,16 @@ async def send_clean(context, chat_id: int, kind: str, file_ids: list[str]):
         media = [MEDIA_CLS[kind](media=fid) for fid in file_ids]
         await context.bot.send_media_group(chat_id=chat_id, media=media)
 
-
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.exception("Handler error", exc_info=context.error)
+    if update and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Something broke on my side. Try again in a moment."
+            )
+        except Exception:
+            pass
+            
 def get_buffer(uid: int) -> dict:
     buf = buffers.get(uid)
     if buf is None:
@@ -392,7 +407,7 @@ async def log_unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------- lifecycle ----------------
 
 async def post_init(app: Application):
-    await init_db()
+    """Only registers bot commands. DB init happens in main_webhook."""
     await app.bot.set_my_commands([
         BotCommand("start",       "Show intro & usage"),
         BotCommand("settings",    "Toggle dedup / photos / documents"),
@@ -406,36 +421,16 @@ async def post_shutdown(app: Application):
     await close_db()
 
 
-
-
-
-# ... (top of file: config, DB, handlers, settings_markup, etc. — unchanged) ...
-
-# generate once, then put the value into Render env as WEBHOOK_PATH
-WEBHOOK_PATH = os.getenv("WEBHOOK_PATH") or secrets.token_urlsafe(32)
-
-# kill the two loggers that leak the token via outbound URLs
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-
-def register_handlers(app: Application):
-    admin = filters.User(ADMIN_IDS)
-    app.add_handler(CommandHandler("start",       start,           filters=admin))
-    app.add_handler(CommandHandler("settings",    settings_cmd,    filters=admin))
-    app.add_handler(CommandHandler("stats",       stats_cmd,       filters=admin))
-    app.add_handler(CommandHandler("reset_dedup", reset_dedup_cmd, filters=admin))
-    app.add_handler(CallbackQueryHandler(
-        settings_button,
-        pattern="^(toggle_(dedup|photos|documents)|reset_dedup)$"))
-    app.add_handler(MessageHandler(
-        admin & (filters.PHOTO | filters.VIDEO | filters.ANIMATION | filters.Document.ALL),
-        handle_media))
-    app.add_handler(MessageHandler(admin & filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.ALL & ~admin, log_unauthorized))
-
-
 async def main_webhook():
+    # ---- DB init, explicit and loud ----
+    logger.info("DB: connecting…")
+    try:
+        await init_db()
+        logger.info("DB: ready (pool=%r)", DB_POOL)
+    except Exception:
+        logger.exception("DB: init FAILED — aborting")
+        raise
+
     app = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -445,7 +440,8 @@ async def main_webhook():
     )
     register_handlers(app)
 
-    await app.initialize()   # post_init runs here (DB init + set_my_commands)
+    await app.initialize()
+    logger.info("PTB: initialized")
 
     webhook_url = f"{RENDER_URL}/{WEBHOOK_PATH}"
     await app.bot.set_webhook(
@@ -456,6 +452,7 @@ async def main_webhook():
     logger.info("Webhook set (path hidden)")
 
     await app.start()
+    ...
 
     async def telegram_webhook(request):
         data = await request.json()
