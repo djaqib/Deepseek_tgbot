@@ -1,12 +1,17 @@
 import asyncio
 import hashlib
 import logging
-import secrets
 import os
 import random
-from telegram import BotCommand
+import secrets
+
 import asyncpg
+import uvicorn
 from dotenv import load_dotenv
+from starlette.applications import Starlette
+from starlette.responses import Response
+from starlette.routing import Route
+from telegram import BotCommand
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
     InputMediaPhoto, InputMediaVideo, InputMediaAnimation, InputMediaDocument,
@@ -19,11 +24,16 @@ from telegram.ext import (
 load_dotenv()
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# suppress the two loggers that leak the token via outbound API URLs
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # ---------------- config ----------------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+BOT_TOKEN    = os.getenv("BOT_TOKEN", "").strip()
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+PORT         = int(os.environ.get("PORT", 10000))
+RENDER_URL   = os.environ.get("RENDER_EXTERNAL_URL")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x.isdigit()}
 
 if not BOT_TOKEN:
@@ -32,6 +42,8 @@ if not ADMIN_IDS:
     raise SystemExit("❌ ADMIN_IDS missing or empty in .env")
 if not DATABASE_URL:
     raise SystemExit("❌ DATABASE_URL missing in .env")
+if not RENDER_URL:
+    raise SystemExit("❌ RENDER_EXTERNAL_URL missing — is this a Web Service?")
 
 BUFFER_TIMEOUT = 180
 MAX_ALBUM = 10
