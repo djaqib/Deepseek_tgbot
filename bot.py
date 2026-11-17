@@ -24,7 +24,11 @@ from telegram.ext import (
 load_dotenv()
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH") or secrets.token_urlsafe(32)
 
+# kill the two loggers that leak the token via outbound URLs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 # suppress the two loggers that leak the token via outbound API URLs
 
 # ---------------- config ----------------
