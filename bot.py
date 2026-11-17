@@ -26,8 +26,6 @@ logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=lo
 logger = logging.getLogger(__name__)
 
 # suppress the two loggers that leak the token via outbound API URLs
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # ---------------- config ----------------
 BOT_TOKEN    = os.getenv("BOT_TOKEN", "").strip()
