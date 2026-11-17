@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import secrets
 import os
 import random
 from telegram import BotCommand
@@ -396,20 +397,23 @@ async def post_shutdown(app: Application):
 
 
 
-async def main_webhook():
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .post_init(post_init)
-        .post_shutdown(post_shutdown)
-        .build()
-    )
 
+
+# ... (top of file: config, DB, handlers, settings_markup, etc. — unchanged) ...
+
+# generate once, then put the value into Render env as WEBHOOK_PATH
+WEBHOOK_PATH = os.getenv("WEBHOOK_PATH") or secrets.token_urlsafe(32)
+
+# kill the two loggers that leak the token via outbound URLs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+def register_handlers(app: Application):
     admin = filters.User(ADMIN_IDS)
-
-    app.add_handler(CommandHandler("start", start, filters=admin))
-    app.add_handler(CommandHandler("settings", settings_cmd, filters=admin))
-    app.add_handler(CommandHandler("stats", stats_cmd, filters=admin))
+    app.add_handler(CommandHandler("start",       start,           filters=admin))
+    app.add_handler(CommandHandler("settings",    settings_cmd,    filters=admin))
+    app.add_handler(CommandHandler("stats",       stats_cmd,       filters=admin))
     app.add_handler(CommandHandler("reset_dedup", reset_dedup_cmd, filters=admin))
     app.add_handler(CallbackQueryHandler(
         settings_button,
@@ -419,20 +423,29 @@ async def main_webhook():
         handle_media))
     app.add_handler(MessageHandler(admin & filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.ALL & ~admin, log_unauthorized))
-    logger.info("Bot running. Admins: %s", ADMIN_IDS)
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-    await app.initialize()
-    await app.bot.set_webhook(
-        url=f"{RENDER_URL}/{BOT_TOKEN}",
-        allowed_updates=Update.ALL_TYPES,
-    )
-    await app.start()
 
-    # This is what satisfies Render's port scanner
-    import uvicorn
-    from starlette.applications import Starlette
-    from starlette.responses import Response
-    from starlette.routing import Route
+
+async def main_webhook():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
+    register_handlers(app)
+
+    await app.initialize()   # post_init runs here (DB init + set_my_commands)
+
+    webhook_url = f"{RENDER_URL}/{WEBHOOK_PATH}"
+    await app.bot.set_webhook(
+        url=webhook_url,
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+    )
+    logger.info("Webhook set (path hidden)")
+
+    await app.start()
 
     async def telegram_webhook(request):
         data = await request.json()
@@ -444,15 +457,24 @@ async def main_webhook():
         return Response("ok")
 
     star = Starlette(routes=[
-        Route(f"/{BOT_TOKEN}", telegram_webhook, methods=["POST"]),
-        Route("/health", health, methods=["GET"]),
+        Route(f"/{WEBHOOK_PATH}", telegram_webhook, methods=["POST"]),
+        Route("/health",          health,           methods=["GET"]),
     ])
-    config = uvicorn.Config(star, host="0.0.0.0", port=PORT, log_level="info")
+
+    # ⬇️ THIS is where the snippet goes — it replaces the old uvicorn.Config(...) call
+    config = uvicorn.Config(
+        star,
+        host="0.0.0.0",
+        port=PORT,
+        log_level="info",
+        access_log=False,        # <-- the important line
+    )
     server = uvicorn.Server(config)
     await server.serve()
 
     await app.stop()
     await app.shutdown()
+
 
 if __name__ == "__main__":
     asyncio.run(main_webhook())
