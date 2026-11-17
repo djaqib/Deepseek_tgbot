@@ -422,5 +422,56 @@ def main():
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
+import os
+from telegram import Update
+
+PORT = int(os.environ.get("PORT", 10000))
+RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render injects this
+
+async def main_webhook():
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .post_shutdown(post_shutdown)
+        .build()
+    )
+
+    # ... register your handlers exactly as before ...
+
+    await app.initialize()
+    await app.bot.set_webhook(
+        url=f"{RENDER_URL}/{BOT_TOKEN}",
+        allowed_updates=Update.ALL_TYPES,
+    )
+    await app.start()
+
+    # This is what satisfies Render's port scanner
+    import uvicorn
+    from starlette.applications import Starlette
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    async def telegram_webhook(request):
+        data = await request.json()
+        update = Update.de_json(data, app.bot)
+        await app.process_update(update)
+        return Response("ok")
+
+    async def health(request):
+        return Response("ok")
+
+    star = Starlette(routes=[
+        Route(f"/{BOT_TOKEN}", telegram_webhook, methods=["POST"]),
+        Route("/health", health, methods=["GET"]),
+    ])
+    config = uvicorn.Config(star, host="0.0.0.0", port=PORT, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+    await app.stop()
+    await app.shutdown()
+
 if __name__ == "__main__":
+    asyncio.run(main_webhook())
     main()
